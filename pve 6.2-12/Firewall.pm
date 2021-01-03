@@ -213,7 +213,7 @@ my $pve_fw_macros = {
 	{ action => 'PARAM', proto => 'udp', dport => '6881' },
     ],
     'Ceph' => [
-        "Ceph Storage Cluster traffic (Ceph Monitors, OSD & MDS Deamons)",
+        "Ceph Storage Cluster traffic (Ceph Monitors, OSD & MDS Daemons)",
 	# Legacy port for protocol v1
         { action => 'PARAM', proto => 'tcp', dport => '6789' },
 	# New port for protocol v2
@@ -276,7 +276,7 @@ my $pve_fw_macros = {
 	{ action => 'PARAM', proto => 'tcp', dport => '9418' },
     ],
     'HKP' => [
-	"OpenPGP HTTP keyserver protocol traffic",
+	"OpenPGP HTTP key server protocol traffic",
 	{ action => 'PARAM', proto => 'tcp', dport => '11371' },
     ],
     'HTTP' => [
@@ -636,7 +636,7 @@ $pve_std_chains_conf->{4} = {
     ],
     'PVEFW-tcpflags' => [
 	# same as shorewall tcpflags action.
-	# Packets arriving on this interface are checked for som illegal combinations of TCP flags
+	# Packets arriving on this interface are checked for some illegal combinations of TCP flags
 	{ match => '-p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG FIN,PSH,URG', target => '-g PVEFW-logflags' },
 	{ match => '-p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG NONE', target => '-g PVEFW-logflags' },
 	{ match => '-p tcp -m tcp --tcp-flags SYN,RST SYN,RST', target => '-g PVEFW-logflags' },
@@ -729,7 +729,7 @@ $pve_std_chains_conf->{6} = {
     ],
     'PVEFW-tcpflags' => [
 	# same as shorewall tcpflags action.
-	# Packets arriving on this interface are checked for som illegal combinations of TCP flags
+	# Packets arriving on this interface are checked for some illegal combinations of TCP flags
 	{ match => '-p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG FIN,PSH,URG', target => '-g PVEFW-logflags' },
 	{ match => '-p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG NONE', target => '-g PVEFW-logflags' },
 	{ match => '-p tcp -m tcp --tcp-flags SYN,RST SYN,RST', target => '-g PVEFW-logflags' },
@@ -1144,6 +1144,19 @@ sub pve_fw_verify_protocol_spec {
    return $proto;
 }
 
+PVE::JSONSchema::register_format('pve-fw-icmp-type-spec', \&pve_fw_verify_icmp_type_spec);
+sub pve_fw_verify_icmp_type_spec {
+    my ($icmp_type) = @_;
+
+    if ($icmp_type_names->{$icmp_type} ||  $icmpv6_type_names->{$icmp_type}) {
+	return $icmp_type;
+    }
+
+    die "invalid icmp-type value '$icmp_type'\n" if $icmp_type ne '';
+
+    return $icmp_type;
+}
+
 
 # helper function for API
 
@@ -1243,7 +1256,7 @@ our $cluster_option_properties = {
 		type => 'integer',
 		minimum => 0,
 		optional => 1,
-		description => 'Inital burst of packages which will get logged',
+		description => 'Initial burst of packages which will always get logged before the rate is applied',
 		default => 5,
 	    },
 	},
@@ -1471,6 +1484,11 @@ my $rule_properties = {
 	type => 'string',
 	optional => 1,
     },
+    'icmp-type' => {
+	description => "Specify icmp-type. Only valid if proto equals 'icmp'.",
+	type => 'string', format => 'pve-fw-icmp-type-spec',
+	optional => 1,
+    },
 };
 
 sub add_rule_properties {
@@ -1591,7 +1609,7 @@ sub verify_rule {
     my $set_ip_version = sub {
 	my $vers = shift;
 	if ($vers) {
-	    die "detected mixed ipv4/ipv6 adresses in rule\n"
+	    die "detected mixed ipv4/ipv6 addresses in rule\n"
 		if $ipversion && ($vers != $ipversion);
 	    $ipversion = $vers;
 	}
@@ -1664,7 +1682,8 @@ sub verify_rule {
 	eval { pve_fw_verify_protocol_spec($rule->{proto}); };
 	&$add_error('proto', $@) if $@;
 	&$set_ip_version(4) if $rule->{proto} eq 'icmp';
- 	&$set_ip_version(6) if $rule->{proto} eq 'icmpv6';
+	&$set_ip_version(6) if $rule->{proto} eq 'icmpv6';
+	&$set_ip_version(6) if $rule->{proto} eq 'ipv6-icmp';
     }
 
     if ($rule->{dport}) {
@@ -1676,6 +1695,19 @@ sub verify_rule {
 	&$add_error('dport', "protocol '$proto' does not support ports")
 	    if !$PROTOCOLS_WITH_PORTS->{$proto} &&
 		$proto ne 'icmp' && $proto ne 'icmpv6'; # special cases
+    }
+
+    if (my $icmp_type = $rule ->{'icmp-type'}) {
+	my $proto = $rule->{proto};
+	&$add_error('proto', "missing property - 'icmp-type' requires this property")
+	    if $proto ne 'icmp' && $proto ne 'icmpv6' && $proto ne 'ipv6-icmp';
+	&$add_error('icmp-type', "'icmp-type' cannot be specified together with 'dport'")
+	    if $rule->{dport};
+	if ($proto eq 'icmp' && !$icmp_type_names->{$icmp_type}) {
+	    &$add_error('icmp-type', "invalid icmp-type '$icmp_type' for proto 'icmp'");
+	} elsif (($proto eq 'icmpv6' || $proto eq 'ipv6-icmp') && !$icmpv6_type_names->{$icmp_type}) {
+	    &$add_error('icmp-type', "invalid icmp-type '$icmp_type' for proto '$proto'");
+	}
     }
 
     if ($rule->{sport}) {
@@ -1944,9 +1976,10 @@ sub ebtables_get_chains {
 	my $line = shift;
 	return if $line =~ m/^#/;
 	return if $line =~ m/^\s*$/;
-	if ($line =~ m/^:(\S+)\s\S+$/) {
+	if ($line =~ m/^:(\S+)\s(ACCEPT|DROP|RETURN)$/) {
 	    # Make sure we know chains exist even if they're empty.
 	    $chains->{$1} //= [];
+	    $res->{$1}->{policy} = $2;
 	} elsif ($line =~ m/^(?:\S+)\s(\S+)\s(?:\S+).*/) {
 	    my $chain = $1;
 	    $line =~ s/\s+$//;
@@ -1966,7 +1999,7 @@ sub ebtables_get_chains {
     return $res;
 }
 
-# substitude action of rule according to action hash
+# substitute action of rule according to action hash
 sub rule_substitude_action {
     my ($rule, $actions) = @_;
 
@@ -2079,7 +2112,18 @@ sub ipt_rule_to_cmds {
 		}
 	    };
 
+	    my $add_icmp_type = sub {
+		return if !defined($rule->{'icmp-type'}) || $rule->{'icmp-type'} eq '';
+
+		die "'icmp-type' can only be set if 'icmp', 'icmpv6' or 'ipv6-icmp' is specified\n"
+		    if ($proto ne 'icmp') && ($proto ne 'icmpv6') && ($proto ne 'ipv6-icmp');
+		my $type = $proto eq 'icmp' ? 'icmp-type' : 'icmpv6-type';
+
+		push @match, "-m $proto --$type $rule->{'icmp-type'}";
+	    };
+
 	    # order matters - single port before multiport!
+	    $add_icmp_type->();
 	    $add_dport->() if $multisport;
 	    $add_sport->();
 	    $add_dport->() if !$multisport;
@@ -2109,7 +2153,7 @@ sub ipt_rule_to_cmds {
 		if ($rule->{type} eq 'out') {
 			
 			run_command(['iptables -t nat -A POSTROUTING ' . $matchstr . ' -o ' . $ext_if . ' -j MASQUERADE']);
-
+			
 		}
 		
 		#DNAT
@@ -2123,9 +2167,9 @@ sub ipt_rule_to_cmds {
 			$nat_matchstr .= ' -p ' . $rule->{proto} . ' --dport ' . $rule->{sport}; #sport is income external dest port
 			$nat_matchstr .= ' -j DNAT --to ' . $rule->{dest} . ':' . $rule->{dport};
 			run_command(['iptables -t nat -A PREROUTING -i ' . $ext_if . $nat_matchstr]);
-		
-		}	
-		
+			
+		}
+
 	}
 
     my @iptcmds;
@@ -2756,6 +2800,10 @@ sub parse_fw_rule {
 	    $rule->{log} = $1;
 	    next;
 	}
+	if ($line =~ s/^-icmp-type (\S+)\s*//) {
+	    $rule->{'icmp-type'} = $1;
+	    next;
+	}
 
 	last;
     }
@@ -3205,6 +3253,7 @@ my $format_rules = sub {
 		$raw .= " -dport $rule->{dport}" if $rule->{dport};
 		$raw .= " -sport $rule->{sport}" if $rule->{sport};
 		$raw .= " -log $rule->{log}" if $rule->{log};
+		$raw .= " -icmp-type $rule->{'icmp-type'}" if defined($rule->{'icmp-type'}) && $rule->{'icmp-type'} ne '';
 	    }
 
 	    $raw .= " # " . encode('utf8', $rule->{comment})
@@ -3632,8 +3681,10 @@ sub compile {
 
     my $vmfw_configs;
 
-	#flush NAT table
+	#flush NAT table, flush raw + add PREROUTING contrack
 	run_command(['iptables -t nat -F']);
+	run_command(['iptables -t raw -F']);
+	run_command(['iptables -t raw -I PREROUTING -i fwbr+ -j CT --zone 1']);
 
     # fixme: once we read standard chains from config this needs to be put in test/standard cases below
     $pve_std_chains = dclone($pve_std_chains_conf);
@@ -3838,7 +3889,7 @@ sub compile_ipsets {
 	    return if !$vmfw_conf;
 
 	    # When the 'ipfilter' option is enabled every device for which there
-	    # is no 'ipfilter-netX' ipset defiend gets an implicit empty default
+	    # is no 'ipfilter-netX' ipset defined gets an implicit empty default
 	    # ipset.
 	    # The reason is that ipfilter ipsets are always filled with standard
 	    # IPv6 link-local filters.
@@ -3877,7 +3928,7 @@ sub compile_ipsets {
 	    return if !$vmfw_conf;
 
 	    # When the 'ipfilter' option is enabled every device for which there
-	    # is no 'ipfilter-netX' ipset defiend gets an implicit empty default
+	    # is no 'ipfilter-netX' ipset defined gets an implicit empty default
 	    # ipset.
 	    # The reason is that ipfilter ipsets are always filled with standard
 	    # IPv6 link-local filters, as well as the IP addresses configured
@@ -4093,6 +4144,7 @@ sub get_ruleset_status {
 	if (defined($change_only_regex)) {
 	    $action = 'ignore' if ($chain !~ m/$change_only_regex/);
 	    $statushash->{$chain}->{rules} = $active_chains->{$chain}->{rules};
+	    $statushash->{$chain}->{policy} = $active_chains->{$chain}->{policy};
 	    $sig = $sig->{sig};
 	}
 	$statushash->{$chain}->{action} = $action;
@@ -4193,7 +4245,8 @@ sub get_ebtables_cmdlist {
     my $pve_include = 0;
     foreach my $chain (sort keys %$statushash) {
 	next if ($statushash->{$chain}->{action} eq 'delete');
-	$cmdlist .= ":$chain ACCEPT\n";
+	my $policy = $statushash->{$chain}->{policy} // 'ACCEPT';
+	$cmdlist .= ":$chain $policy\n";
 	$pve_include = 1 if ($chain eq 'PVEFW-FORWARD');
     }
 

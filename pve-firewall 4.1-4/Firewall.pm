@@ -2158,15 +2158,20 @@ sub ipt_rule_to_cmds {
 		#DNAT
 		if ($rule->{type} eq 'in') {
 			
-			#patch matchstr. Use sport like inbound port on $ext_if. So to get valid pve rule we delete it.
-			$matchstr =~ s/--sport $rule->{sport}//;
-			#add source if exist in rule
-			my $nat_matchstr = (defined $rule->{source}) ? " -s " . $rule->{source} : "";
-			#build nat rule string
-			$nat_matchstr .= ' -p ' . $rule->{proto} . ' --dport ' . $rule->{sport}; #sport is income external dest port
-			$nat_matchstr .= ' -j DNAT --to ' . $rule->{dest} . ':' . $rule->{dport};
-			run_command(['iptables -t nat -A PREROUTING -i ' . $ext_if . $nat_matchstr]);
-			
+			#with ipset field is empty
+			if (defined $rule->{sport}) {
+				#patch matchstr. Use sport like inbound port on $ext_if. So to get valid pve rule we delete it.
+				$matchstr =~ s/--sport $rule->{sport}//;
+			}			
+
+			my $nat_matchstr = $matchstr; #matchstr include ipset data
+
+			#delete destination data from rule, in DNAT rule that data must be at '--to-destination' block
+			$nat_matchstr =~ s/--dport $rule->{dport}//;
+			$nat_matchstr =~ s/-d $rule->{dest}//;
+
+			$nat_matchstr .= ' -i ' . $ext_if . ' -j DNAT --to ' . $rule->{dest} . ':' . $rule->{dport};
+			run_command(['iptables -t nat -A PREROUTING ' . $nat_matchstr]);
 		}
 
 	}

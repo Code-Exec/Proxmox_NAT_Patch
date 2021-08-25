@@ -2104,12 +2104,14 @@ sub ipt_rule_to_cmds {
 			if (defined $rule->{sport}) {
 				#patch matchstr. Use sport like inbound port on $ext_if. So to get valid pve rule we delete it.
 				$matchstr =~ s/--sport $rule->{sport}//;
-			}			
+			}	  
 
 			my $nat_matchstr = $matchstr; #matchstr include ipset data
 
+			#replace dport (its nat destonation in rule) to sport
+			$nat_matchstr =~ s/--dport $rule->{dport}/--dport $rule->{sport}/;
+
 			#delete destination data from rule, in DNAT rule that data must be at '--to-destination' block
-			$nat_matchstr =~ s/--dport $rule->{dport}//;
 			$nat_matchstr =~ s/-d $rule->{dest}//;
 
 			$nat_matchstr .= ' -i ' . $ext_if . ' -j DNAT --to ' . $rule->{dest} . ':' . $rule->{dport};

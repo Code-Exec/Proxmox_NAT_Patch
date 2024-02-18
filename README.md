@@ -1,114 +1,95 @@
 # Proxmox_NAT_Patch
-Proxmox patch to create firewall NAT rules for web UI
+Proxmox patch gives ability to create firewall NAT rules using the standard PVE web UI.
 
-# Проблематика
-Все пользователи Proxmox уже почувствовали всю мощь это продукта, а IT администраторы систем витруализации вовсю используют Proxmox в production. Однако, как и все бесплатные продукты есть ряд недоработок, нервирующие каждый день. Чтож сегодня мы сделаем одной проблемой меньше!
+Full problem and working explanation (RU) - [link](https://github.com/Code-Exec/Proxmox_NAT_Patch/explanation_ru.md)
 
-Итак рассматривая общую архитектуру облачно/контейнерных решений в простом варианте архитектура сети выглядит следующим образом (мой опыт, не претендую на истину):
+# Installation
 
-![map](https://github.com/Code-Exec/Proxmox_NAT_Patch/blob/master/img/Classical%20PVE.png)
+**1. Patch pve-firewall.**
 
-Немного поясню. Интерфейс "eth0" - физический интерфейс. Как правило из коробки Proxmox VE настраивается на "vmbr0" как виртуальный интерфейс сбридженный с физическим "eth0". Вероятно это для упрощения настройки будущей балансировки в случае существования нескольких каналов интернет. Однако в случае с одним каналом интернет это никакого значения не имеет. Можно было бы насртоить и на физический интерфейс "eth0". Интерфейсы "vmbr0", "vmbr1" - виртуальные, существуют только в PVE. Итак, вот мы создавали несколько виртуальных машин (или контейнеров) и первая проблема - как управлять их сетевым доступом? Локальный трафик в рамках виртуального сегмента сети "192.168.0.1/24" управляется легко. Встроенный в PVE Firewall (основанный на iptables) прекрасно с этим справляется, но как прокинуть порты во внутрь и пропустить трафик наружу?
-
-Официальный сайт нам предлагает изумительное решение.  - [Masquerading (NAT) with iptables](https://pve.proxmox.com/wiki/Network_Configuration#_masquerading_nat_with_tt_span_class_monospaced_iptables_span_tt).
-
-Формально они предлагают писать ручками правила NAT между vmbr0 и vmbr1.
-
-Это как у купили вы Теслу, а заводить ее с толкача. Казалось бы тривиальная задача...
-
-# В чем идея?
-Да конечно, поначалу я как и все пошел пропихивать в iptables свои правила. Причем тут еще один ньюанс, PVE Firewall на виртуальных машинах тоже работал и для каждого NAT правила нужно было создать еще одно в интерфейсе PVE. В последствии PVE Firewall на виртуальных машинах отключался (изолированная виртуальная сеть не сильно снижала безопасность без него). Но одно дело когда машин 2 и другое когда 20. На память не упомнишь кому какие порты раздавал, у какой машины есть выход на сторонние узлы... ребут или перезапуск служб мог вычистить все созданные правила...
-Постепенно я написал скрипт на bash для более менее комфортного управления всем этим ужасом и готовился уже создавать более красивое решение на python.
-Я даже думал пойти ужасным путем и поднять прокси внутри виртуальной сети...
-Но тут у меня возник вопрос в голове: 
-`"Стоп, ведь вся проблема в том что интерфейс PVE Firewall не позволяет вводить правила NAT". `
-Да и в архитектуре должен быть один firewall. Нет смысла их плодить и тратить время на их обслуживание. Сохраняя правила NAT в стандартном интерфейсе PVE Firewall мы получаем массу преимуществ: видимость всех правил разом, сохранение вместе с ВМ, не нужно лезь в консоль.
-Конечная идея была сформирована: **научить интерфейс PVE Firewall понимать правила NAT !**
-# Решение
-Решение представляет из себя создание дополнительного правила iptables(NAT) при добавлении стандартного правила PVE через интерфейс, тригер для создания - строка "Comment" начинается с "NAT". Для этого нужно подправить файл файервола PVE.
-
-# Установка
-
-**1. Патчим pve-firewall.**
-
-Скачиваем последний релиз со страницы релизов [Releses](https://github.com/Code-Exec/Proxmox_NAT_Patch/releases) и распаковываем в любое удобное место. Переходим в эту папку и пишем в консоле - 
+Download the latest release from the releases page [Releases](https://github.com/Code-Exec/Proxmox_NAT_Patch/releases) and extract it to any convenient place. Go to this folder and write in the console - 
         
         $ ./patcher.sh run
 
-Эта команда пропатчит файл `/usr/share/perl5/PVE/Firewall.pm`, сделав бэкап. Если все прошло успешно то увидим "Patch done".
+This command will patch the `/usr/share/perl5/PVE/Firewall.pm` file, making a backup. If it is successful, we will see "Patch done".
 
-**ВНИМАНИЕ!** В модифицированном файле есть строка для привязки к внешнему интерфейсу (необходим для NAT правил).
+**WARNING!** The modified file has a line for binding to the external interface (needed for NAT rules).
 
         my $ext_if = 'vmbr0'; #external interface
 
-Если у вас другая схема архитектуры, то измените значение на свой интерфейс.
+If you have a different architecture scheme, change the value to your interface.
 
-**2. Вносим изменения необходимые для NAT**
+**2. Make the changes necessary for NAT**
 
-По рекомендациям офицаильного сайта - [Link](https://pve.proxmox.com/wiki/Network_Configuration#_masquerading_nat_with_tt_span_class_monospaced_iptables_span_tt)
+Following the recommendations of the official site - [Link](https://pve.proxmox.com/wiki/Network_Configuration#_masquerading_nat_with_tt_span_class_monospaced_iptables_span_tt).
 
-Изменяем файл /etc/network/interfaces
+Modify the file /etc/network/interfaces
 
         auto vmbr1
         #private sub network
         iface vmbr1 inet static
-                address  10.10.10.1
-                netmask  255.255.255.0
+                address 10.10.10.10.1
+                netmask 255.255.255.255.0
                 bridge-ports none
                 bridge-stp off
                 bridge-fd 1
 
-                post-up   echo 1 > /proc/sys/net/ipv4/ip_forward
-                post-up   iptables -t raw -I PREROUTING -i fwbr+ -j CT --zone 1
+                post-up echo 1 > /proc/sys/net/ipv4/ip_forward
+                post-up iptables -t raw -I PREROUTING -i fwbr+ -j CT --zone 1
                 post-down iptables -t raw -D PREROUTING -i fwbr+ -j CT --zone 1
 
-По факту мы добавляем три строки к нашему интерфейсу виртуальной сети (он же будет шлюзом для всей сети)
+In fact, we add three lines to our virtual network interface (which will also be the gateway for the entire network)
 
-                post-up   echo 1 > /proc/sys/net/ipv4/ip_forward
-                post-up   iptables -t raw -I PREROUTING -i fwbr+ -j CT --zone 1
+                post-up echo 1 > /proc/sys/net/ipv4/ip_forward
+                post-up iptables -t raw -I PREROUTING -i fwbr+ -j CT --zone 1
                 post-down iptables -t raw -D PREROUTING -i fwbr+ -j CT --zone 1
 
-Первая строка - добавляет возможность пропускать "проходящий трафик", без нее NAT вообще не будет работать.
+The first line adds the ability to allow "passing traffic", without it NAT will not work at all.
 
-Вторая - исправляет проблему с contrack (часть для NAT позволяющая не писать двойные правила на вход и выход, основывается на анализе состояния соединений и флагах пакетов). Проблема в том что contrack иногда запутывается в трафике между виртуально и не виртуальной сетями. 
+The second line fixes the problem with contrack (the part of NAT that allows you not to write double rules for ingress and egress, based on link state analysis and packet flags). The problem is that contrack sometimes gets confused in traffic between virtual and non-virtual networks. 
 
-Первые две срабатывают при включении интерфейса. Третья при отключении, отменяет вторую...
+The first two are triggered when the interface is enabled. The third one, when disconnected, overrides the second one.....
 
-**3. Перезапускаемся** 
+**3. Restart** 
 
-Лучше перезапустить весь сервер. Но если это не возможно то можно выполнить в консоли:
+It is better to restart the whole server. But if this is not possible, you can do it in the console:
 
         service pvedaemon restart
         service pvepoxy restart
         pve-firewall restart
 
-# Использование
+# Usage
 
-**Правила NAT создаются только когда комментрий правила начинается с строки "NAT"!**
+**NAT rules are created only when the rule comment starts with the string "NAT"!
 
-Привила применяются не моментально... Иногда дело может доходить до минуты. Но очень редко. Архитектура решения такова, что правила все очищаются, потом создаются новые.
+Rules are not applied instantly... Sometimes it can take up to a minute. But very rarely. The architecture of the solution is such that rules are all cleaned up, then new ones are created.
 
-Пример NAT in:
+Example NAT in:
 
 ![Sample_NAT_in](https://github.com/Code-Exec/Proxmox_NAT_Patch/blob/master/img/Sample_NAT_in.PNG)
 
-В этом примере по мимо стандартного правила разрешающего 123.123.123.123:822 -> 10.10.10.107:22 создастся еще одно NAT. То есть создав такое правило и постучавшись с IP 123.123.123.123 на порт 822 на IP адрес нашего сервера, мы будем прокинуты на 10.10.10.107:22 . Если не заполнить источник, то любой IP сможет подключиться через порт 822.
+In this example, in addition to the standard rule allowing 123.123.123.123.123.123:822 -> 10.10.10.107:22, another NAT will be created. That is, by creating such a rule and knocking from IP 123.123.123.123.123 on port 822 to the IP address of our server, we will be routed to 10.10.10.107:22 . If you don't fill in the source, any IP will be able to connect through port 822.
 
-**ВАЖНО!** В моей архитектуре все виртуальные машины имеют статический IP поэтому создавая такое правило я точно знаю на какую машину оно уйдет. Очень удобно использовать VMID в качестве последней цифры IP, но это лично мое мнение.
+**IMPORTANT!** In my architecture all virtual machines have a static IP so when I create such a rule I know exactly which machine it will go to. It is very convenient to use the VMID as the last digit of the IP, but this is my personal opinion.
 
-Пример NAT out:
+Example NAT out:
 
 ![Sample_NAT_out](https://github.com/Code-Exec/Proxmox_NAT_Patch/blob/master/img/Sample_NAT_out.PNG)
 
-В этом примере все аналогично. Создастся второе правило NAT пробрасывающее с 10.10.10.105 (это конкретная VM) трафик на 123.123.123.123:443. То есть если мы с этой VM попробуем подключиться к 123.123.123.123:443 сработает NAT и нас пропустит.
+Everything is similar in this example. A second NAT rule will be created to forward traffic from 10.10.10.10.105 (this is a specific VM) to 123.123.123.123.123:443. So if we try to connect to 123.123.123.123.123.123:443 from this VM, the NAT will work and let us through.
 
-**ВАЖНО!** Элиасы или псевдонимы пока что не поддерживаются. Использовать придется только IP.
+**IMPORTANT!** Eliases or aliases are not supported yet. You will only have to use IPs.
 
-# Удаление
+# Uninstall
 
-Удаление происходит в том же порядке:
-1. Вводим команду -  
-> ./patcher.sh rollback
-Эта команда восстановит оригинальный файл из бэкапа. Если все прошло успешно увидим "Rollback done".
-2. Удаляем строки из "/etc/network/interfaces".
-3. Перезагружаемся.
+Uninstall are going by the steps as install but in back order:
+1. Type the command -  
+
+         ./patcher.sh rollback
+
+This command will restore the original file from the backup. If everything was successful we will see "Rollback done".
+
+2. Delete lines from "/etc/network/interfaces".
+3. Reboot.
+
+Translated with DeepL.com (free version)

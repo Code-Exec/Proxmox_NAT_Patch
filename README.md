@@ -31,7 +31,7 @@ Proxmox patch to create firewall NAT rules for web UI
 
 **1. Патчим pve-firewall.**
 
-Скачиваем файлы "patcher.sh", "diff.txt" и кладем их в любое удобное место в одну папку. Переходим в эту папку и пишем в консоле - 
+Скачиваем последний релиз со страницы релизов [Releses](https://github.com/Code-Exec/Proxmox_NAT_Patch/releases) и распаковываем в любое удобное место. Переходим в эту папку и пишем в консоле - 
         
         $ ./patcher.sh run
 

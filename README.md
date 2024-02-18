@@ -1,7 +1,7 @@
 # Proxmox_NAT_Patch
 Proxmox patch gives ability to create firewall NAT rules using the standard PVE web UI.
 
-Full problem and working explanation (RU) - [link](https://github.com/Code-Exec/Proxmox_NAT_Patch/explanation_ru.md)
+Full problem and working explanation (RU) - [link](explanation_ru.md)
 
 # Installation
 

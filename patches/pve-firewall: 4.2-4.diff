@@ -1,0 +1,53 @@
+--- Firewall.pm.orig	2021-10-12 10:39:05.000000000 +0200
++++ Firewall.pm	2024-02-18 20:17:37.375308609 +0100
+@@ -2141,6 +2141,40 @@
+ 	my $goto = 1 if $action eq 'PVEFW-SET-ACCEPT-MARK';
+ 	$targetstr = ($goto) ? "-g $action" : "-j $action";
+     }
++	
++	#add second NAT rule if comment eq NAT
++	my $ext_if = 'vmbr0'; #external interface
++	if ($rule->{comment} && substr($rule->{comment},0,3) eq 'NAT') {
++		
++		#SNAT
++		if ($rule->{type} eq 'out') {
++			
++			run_command(['iptables -t nat -A POSTROUTING ' . $matchstr . ' -o ' . $ext_if . ' -j MASQUERADE']);
++			
++		}
++		
++		#DNAT
++		if ($rule->{type} eq 'in') {
++			
++			#with ipset field is empty
++			if (defined $rule->{sport}) {
++				#patch matchstr. Use sport like inbound port on $ext_if. So to get valid pve rule we delete it.
++				$matchstr =~ s/--sport $rule->{sport}//;
++			}	  
++
++			my $nat_matchstr = $matchstr; #matchstr include ipset data
++
++			#replace dport (its nat destonation in rule) to sport
++			$nat_matchstr =~ s/--dport $rule->{dport}/--dport $rule->{sport}/;
++
++			#delete destination data from rule, in DNAT rule that data must be at '--to-destination' block
++			$nat_matchstr =~ s/-d $rule->{dest}//;
++
++			$nat_matchstr .= ' -i ' . $ext_if . ' -j DNAT --to ' . $rule->{dest} . ':' . $rule->{dport};
++			run_command(['iptables -t nat -A PREROUTING ' . $nat_matchstr]);
++		}
++
++	}
+ 
+     my @iptcmds;
+     my $log = $rule->{log};
+@@ -3651,6 +3685,9 @@
+ 
+     my $vmfw_configs;
+ 
++	#flush NAT table, flush raw + add PREROUTING contrack
++	run_command(['iptables -t nat -F']);
++
+     # fixme: once we read standard chains from config this needs to be put in test/standard cases below
+     $pve_std_chains = dclone($pve_std_chains_conf);
+ 

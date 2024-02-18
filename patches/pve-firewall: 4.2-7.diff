@@ -1,6 +1,8 @@
-@@ -2229,6 +2229,40 @@
- 	my $action = (defined $rule->{action}) ? $rule->{action} : "";
- 	$targetstr = $action eq 'PVEFW-SET-ACCEPT-MARK' ? "-g $action" : "-j $action";
+--- Firewall.pm.orig	2022-11-17 19:53:04.000000000 +0100
++++ Firewall.pm	2024-02-18 20:19:36.119310510 +0100
+@@ -2157,6 +2157,40 @@
+ 	my $goto = 1 if $action eq 'PVEFW-SET-ACCEPT-MARK';
+ 	$targetstr = ($goto) ? "-g $action" : "-j $action";
      }
 +	
 +	#add second NAT rule if comment eq NAT
@@ -35,11 +37,11 @@
 +			run_command(['iptables -t nat -A PREROUTING ' . $nat_matchstr]);
 +		}
 +
-+	 }
++	}
  
      my @iptcmds;
      my $log = $rule->{log};
-@@ -3749,6 +3783,9 @@
+@@ -3653,6 +3687,9 @@
  
      my $vmfw_configs;
  

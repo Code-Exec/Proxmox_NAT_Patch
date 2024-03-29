@@ -1,6 +1,6 @@
---- Firewall.pm.orig	2019-08-07 10:55:06.000000000 +0200
-+++ Firewall.pm	2024-02-18 19:44:14.579276539 +0100
-@@ -2026,6 +2026,38 @@
+--- Firewall.pm.orig	2024-03-29 22:54:57.024362588 +0100
++++ Firewall.pm	2024-03-29 23:11:57.872353179 +0100
+@@ -2026,6 +2026,39 @@
  		    push @match, "--sport $rule->{sport}";
  		}
  	    };
@@ -36,10 +36,11 @@
 +			$nat_matchstr .= ' -i ' . $ext_if . ' -j DNAT --to ' . $rule->{dest} . ':' . $rule->{dport};
 +			run_command(['iptables -t nat -A PREROUTING ' . $nat_matchstr]);
 +		}
++	}
  
  	    # order matters - single port before multiport!
  	    $add_dport->() if $multisport;
-@@ -3504,6 +3536,9 @@
+@@ -3504,6 +3537,9 @@
  
      my $vmfw_configs;
  

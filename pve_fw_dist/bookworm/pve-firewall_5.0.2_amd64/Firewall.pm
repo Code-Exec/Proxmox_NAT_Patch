@@ -2261,6 +2261,7 @@ sub ipt_rule_to_cmds {
 			$nat_matchstr .= ' -i ' . $ext_if . ' -j DNAT --to ' . $rule->{dest} . ':' . $rule->{dport};
 			run_command(['iptables -t nat -A PREROUTING ' . $nat_matchstr]);
 		}
+	}
 
     my @iptcmds;
     my $log = $rule->{log};

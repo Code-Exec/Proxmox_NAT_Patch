@@ -1,6 +1,6 @@
---- Firewall.pm.orig	2023-06-21 19:17:19.000000000 +0200
-+++ Firewall.pm	2024-02-18 20:28:02.355318616 +0100
-@@ -2229,6 +2229,38 @@
+--- Firewall.pm.orig	2024-03-29 22:54:57.020362588 +0100
++++ Firewall.pm	2024-03-29 23:04:28.416357321 +0100
+@@ -2229,6 +2229,39 @@
  	my $action = (defined $rule->{action}) ? $rule->{action} : "";
  	$targetstr = $action eq 'PVEFW-SET-ACCEPT-MARK' ? "-g $action" : "-j $action";
      }
@@ -36,10 +36,11 @@
 +			$nat_matchstr .= ' -i ' . $ext_if . ' -j DNAT --to ' . $rule->{dest} . ':' . $rule->{dport};
 +			run_command(['iptables -t nat -A PREROUTING ' . $nat_matchstr]);
 +		}
++	}
  
      my @iptcmds;
      my $log = $rule->{log};
-@@ -3739,6 +3771,9 @@
+@@ -3739,6 +3772,9 @@
  
      my $vmfw_configs;
  

@@ -47,6 +47,6 @@ elif [ "$1" == "rollback" ]; then
         echo "Backups not found"
     fi
 else
-    echo "Unknown command. Alowed - run, rollback"
+    echo "Unknown command. Allowed - run, rollback"
 fi
 
